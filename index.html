@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="MashupX" />
-  <title>MashupX v0.1.2</title>
+  <title>MashupX v0.1.3</title>
   <style>
     :root{
       --bg:#070713;
@@ -89,13 +89,13 @@
   <div class="splash" id="splash"><div class="splashBox"><div class="splashLogo">MX</div><h2>MashupX</h2><p>Auto Remix Studio</p></div></div>
   <main class="app">
     <header class="top">
-      <div class="brand"><div class="logo">MX</div><div><h1>MashupX</h1><small>v0.1.2 DJ Blend Fix</small></div></div>
+      <div class="brand"><div class="logo">MX</div><div><h1>MashupX</h1><small>v0.1.3 Vocal Clash Guard</small></div></div>
       <div class="pill">AUTO ENGINE</div>
     </header>
 
     <section class="hero">
       <h2>2 şarkı yükle.<br>Otomatik remix al.</h2>
-      <p>Bu sürüm şarkıları düz üst üste bindirmez; akıllı geçiş, crossfade ve kısa blend bölümleriyle daha DJ tarzı WAV preview üretir. iPhone dosya seçimiyle uyumludur.</p>
+      <p>Bu sürüm sözleri üst üste bindirmez; iki parçayı sırayla kullanır, kısa DJ geçişleri, stutter drop ve crossfade ile daha temiz remix/medley preview üretir. iPhone dosya seçimiyle uyumludur.</p>
 
       <div class="grid">
         <div class="upload">
@@ -129,7 +129,7 @@
       <div class="steps">
         <div class="step" id="s1"><span class="dot"></span>Dosyalar okunuyor</div>
         <div class="step" id="s2"><span class="dot"></span>Ses seviyesi dengeleniyor</div>
-        <div class="step" id="s3"><span class="dot"></span>DJ geçişleri ve crossfade hazırlanıyor</div>
+        <div class="step" id="s3"><span class="dot"></span>Vokal çakışması azaltılıyor, DJ kesitleri hazırlanıyor</div>
         <div class="step" id="s4"><span class="dot"></span>Final WAV hazırlanıyor</div>
       </div>
     </section>
@@ -150,7 +150,7 @@
         <a class="ghost primary" id="download" download="mashupx-remix.wav">İndir WAV</a>
         <button class="ghost" id="again">Yeniden Yap</button>
       </div>
-      <div class="note"><span class="warn">Not:</span> v0.1 preview motorudur; gerçek vokal ayırma/BPM-key AI eşleme sonraki sürüm hedefidir. Telifli içerikleri yalnızca izinli/kişisel kullanım için işleyin.</div>
+      <div class="note"><span class="warn">Not:</span> v0.1.3 preview motorudur; söz çakışmasını önlemek için parçaları sırayla düzenler. Gerçek vokal/beat ayırma ve BPM-key AI eşleme sonraki sürüm hedefidir. Telifli içerikleri yalnızca izinli/kişisel kullanım için işleyin.</div>
     </section>
 
     <div class="footer">MashupX · Auto Remix Studio · Built for mobile</div>
@@ -223,7 +223,7 @@
       download.download = `MashupX-${cleanName(a.name)}-x-${cleanName(b.name)}.wav`.replace(/\s+/g,'-');
       const titleA = cleanName(a.name), titleB = cleanName(b.name);
       $('trackTitle').textContent = `${titleA} x ${titleB}`;
-      $('trackSub').textContent = `${labelForMode(mode)} · MashupX v0.1.2`;
+      $('trackSub').textContent = `${labelForMode(mode)} · MashupX v0.1.3`;
       $('coverLeft').textContent = titleA.toUpperCase();
       $('coverRight').textContent = titleB.toUpperCase();
       $('coverBottom').textContent = labelForMode(mode).toUpperCase();
@@ -243,6 +243,9 @@
   }
 
   async function createMashup(file1, file2, selectedMode){
+    if(!looksLikeAudio(file1) || !looksLikeAudio(file2)){
+      throw new Error('Seçilen dosyalardan biri ses dosyası gibi görünmüyor. MP3, M4A veya WAV dene.');
+    }
     ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
     if(ctx.state === 'suspended') await ctx.resume();
 
@@ -254,64 +257,87 @@
 
     const sr = 44100;
     const settings = getSettings(selectedMode);
-    const dur = Math.min(settings.cap, Math.max(45, Math.min(buf1.duration / settings.rate, buf2.duration / settings.rate, settings.cap)));
+    const dur = Math.min(settings.cap, Math.max(52, Math.min((buf1.duration + buf2.duration) / (2 * settings.rate), settings.cap)));
     const length = Math.max(1, Math.floor(dur * sr));
     const outL = new Float32Array(length);
     const outR = new Float32Array(length);
 
     const peak1 = getPeak(buf1), peak2 = getPeak(buf2);
-    const norm1 = peak1 ? 1/peak1 : 1;
-    const norm2 = peak2 ? 1/peak2 : 1;
+    const norm1 = peak1 ? 0.95/peak1 : 1;
+    const norm2 = peak2 ? 0.95/peak2 : 1;
 
-    setProgress(56, 'DJ blend planı hazırlanıyor...', 's3');
+    setProgress(52, 'Parça girişleri analiz ediliyor...', 's3');
     await sleep(120);
 
-    // v0.1.2 fix: full şarkıları düz üst üste bindirmek yerine
-    // A intro -> A/B crossfade -> B ana bölüm -> kısa mashup blend -> outro düzeni.
-    const tAEnd = dur * settings.aIntroEnd;       // A yalnız bölüm biter
-    const tXEnd = dur * settings.crossEnd;        // crossfade biter
-    const tBEnd = dur * settings.bMainEnd;        // B ana bölüm biter
-    const tBlendEnd = dur * settings.blendEnd;    // kısa remix blend biter
-    const fadeIn = Math.min(2.2, dur * .06);
-    const fadeOut = Math.min(4.0, dur * .09);
+    // v0.1.3 Vocal Clash Guard:
+    // Gerçek vokal ayırma olmadan iki tam şarkıyı aynı anda çalmak sözleri çakıştırır.
+    // Bu yüzden varsayılan motor artık A ve B'yi uzun süre üst üste bindirmez.
+    // A bölüm -> kısa geçiş -> B bölüm -> stutter/drop -> A hook -> kısa geçiş -> B outro.
+    const aStart = findEnergyStart(buf1, 0, Math.min(35, buf1.duration - 2));
+    const bStart = findEnergyStart(buf2, 0, Math.min(35, buf2.duration - 2));
+    const aHook = findEnergyStart(buf1, Math.min(18, Math.max(0, buf1.duration * .25)), Math.min(82, Math.max(2, buf1.duration - 2)));
+    const bHook = findEnergyStart(buf2, Math.min(18, Math.max(0, buf2.duration * .25)), Math.min(82, Math.max(2, buf2.duration - 2)));
+
+    const cross = Math.min(settings.crossDur, dur * .055);
+    const stutterDur = Math.min(settings.stutterDur, dur * .045);
+    const tA1End = dur * .27;
+    const tCross1End = tA1End + cross;
+    const tB1End = dur * .57;
+    const tStutterEnd = tB1End + stutterDur;
+    const tA2End = dur * .76;
+    const tCross2End = tA2End + cross;
+    const fadeIn = Math.min(1.6, dur * .045);
+    const fadeOut = Math.min(3.6, dur * .07);
+
+    setProgress(64, 'Sözler çakışmayacak şekilde kurgu yapılıyor...', null);
 
     for(let i=0;i<length;i++){
       const t = i / sr;
-      const masterFade = Math.min(1, t / fadeIn, (dur - t) / fadeOut);
+      const masterFade = Math.max(0, Math.min(1, t / fadeIn, (dur - t) / fadeOut));
       let aGain = 0, bGain = 0;
-      let aSec = t * settings.rate;
-      let bSec = 0;
+      let aSec = 0, bSec = 0;
+      let fx = 0;
 
-      if(t < tAEnd){
-        // 1) Track A intro / ana giriş
-        aGain = 0.92;
-        bGain = 0;
-      }else if(t < tXEnd){
-        // 2) Yumuşak geçiş: A azalır, B yükselir
-        const x = ease((t - tAEnd) / Math.max(.001, (tXEnd - tAEnd)));
-        aGain = lerp(0.88, settings.crossAEnd, x);
-        bGain = lerp(0.00, settings.crossBEnd, x);
-        bSec = (t - tAEnd) * settings.rate + settings.bOffset;
-      }else if(t < tBEnd){
-        // 3) Track B ana bölüm: çakışma yok, kulak rahat
-        aGain = settings.bedA;
-        bGain = 0.92;
-        aSec = (t - tXEnd) * settings.rate + settings.aBedOffset;
-        bSec = (t - tAEnd) * settings.rate + settings.bOffset;
-      }else if(t < tBlendEnd){
-        // 4) Kısa mashup bölümü: A kontrollü döner, B ana kalır
-        const x = ease((t - tBEnd) / Math.max(.001, (tBlendEnd - tBEnd)));
-        aGain = lerp(settings.blendAStart, settings.blendAEnd, x);
-        bGain = lerp(settings.blendBStart, settings.blendBEnd, x);
-        aSec = (t - tBEnd) * settings.rate + settings.aHookOffset;
-        bSec = (t - tAEnd) * settings.rate + settings.bOffset;
+      if(t < tA1End){
+        // 1) A tek başına: söz çakışması yok.
+        aGain = 0.96;
+        aSec = aStart + (t * settings.rate);
+      }else if(t < tCross1End){
+        // 2) Çok kısa DJ geçişi: bindirme sadece geçiş kadar.
+        const x = ease((t - tA1End) / Math.max(.001, cross));
+        aGain = lerp(0.90, 0.00, x);
+        bGain = lerp(0.00, 0.96, x);
+        aSec = aStart + (t * settings.rate);
+        bSec = bStart + ((t - tA1End) * settings.rate);
+        fx += transitionFx(t - tA1End, settings.fx);
+      }else if(t < tB1End){
+        // 3) B tek başına: ana gövde.
+        bGain = 0.98;
+        bSec = bStart + ((t - tA1End) * settings.rate);
+      }else if(t < tStutterEnd){
+        // 4) Remix hissi: B'den mikro stutter/drop. Yine iki vokal üst üste yok.
+        const local = t - tB1End;
+        const grain = settings.grain;
+        const pulse = local % grain;
+        bGain = 0.88 * (1 - (local / Math.max(.001, stutterDur)) * .18);
+        bSec = bHook + pulse * settings.rate;
+        fx += transitionFx(local, settings.fx * 1.25);
+      }else if(t < tA2End){
+        // 5) A hook/ikinci bölüm tek başına.
+        aGain = 0.96;
+        aSec = aHook + ((t - tStutterEnd) * settings.rate);
+      }else if(t < tCross2End){
+        // 6) Kısa geçiş A -> B.
+        const x = ease((t - tA2End) / Math.max(.001, cross));
+        aGain = lerp(0.90, 0.00, x);
+        bGain = lerp(0.00, 0.96, x);
+        aSec = aHook + ((t - tStutterEnd) * settings.rate);
+        bSec = bHook + ((t - tA2End) * settings.rate);
+        fx += transitionFx(t - tA2End, settings.fx);
       }else{
-        // 5) Outro: B bitirir, A çok düşük ambiyans olarak kalabilir
-        const x = ease((t - tBlendEnd) / Math.max(.001, (dur - tBlendEnd)));
-        aGain = lerp(settings.outroA, 0, x);
-        bGain = lerp(settings.outroB, 0.76, x);
-        aSec = (t - tBlendEnd) * settings.rate + settings.aHookOffset + 10;
-        bSec = (t - tAEnd) * settings.rate + settings.bOffset;
+        // 7) B outro/final.
+        bGain = 0.96;
+        bSec = bHook + ((t - tA2End) * settings.rate);
       }
 
       const aL = readSec(buf1, 0, aSec) * norm1;
@@ -319,25 +345,23 @@
       const bL = readSec(buf2, 0, bSec) * norm2;
       const bR = readSec(buf2, Math.min(1, buf2.numberOfChannels-1), bSec) * norm2;
 
-      // Basit ducking: iki şarkı kısa süre bir araya geldiğinde patlamayı azaltır.
-      const duck = 1 - Math.min(settings.duck, Math.abs((aL+aR)/2) * 0.10);
-      let l = (aL * aGain) + (bL * bGain * duck);
-      let r = (aR * aGain) + (bR * bGain * duck);
+      let l = (aL * aGain) + (bL * bGain) + fx;
+      let r = (aR * aGain) + (bR * bGain) + fx;
 
       if(selectedMode === 'phonk'){
-        const wobble = 0.04 * Math.sin(t * Math.PI * 2 * 2.2);
-        l += bL * wobble;
-        r += bR * wobble;
+        const wobble = 0.035 * Math.sin(t * Math.PI * 2 * 2.15);
+        l += fx * wobble * 3;
+        r -= fx * wobble * 3;
       }
       if(selectedMode === 'night'){
-        l *= 0.92; r *= 0.92;
+        l *= 0.90; r *= 0.90;
       }
 
       outL[i] = softClip(l * masterFade, settings.drive);
       outR[i] = softClip(r * masterFade, settings.drive);
 
       if(i % Math.floor(sr*5) === 0){
-        const p = 58 + (i/length)*27;
+        const p = 66 + (i/length)*21;
         bar.style.width = p + '%'; percent.textContent = Math.round(p) + '%';
       }
     }
@@ -352,18 +376,50 @@
 
   function getSettings(m){
     const base = {
-      rate:1, drive:1.18, master:.94, cap:90, duck:.18,
-      aIntroEnd:.24, crossEnd:.40, bMainEnd:.68, blendEnd:.84,
-      crossAEnd:.16, crossBEnd:.92, bedA:.00,
-      blendAStart:.18, blendAEnd:.38, blendBStart:.88, blendBEnd:.76,
-      outroA:.10, outroB:.86,
-      bOffset:4, aBedOffset:18, aHookOffset:28
+      rate:1, drive:1.12, master:.94, cap:84,
+      crossDur:2.2, stutterDur:2.4, grain:.18, fx:.18
     };
-    if(m === 'night') return {...base, rate:.94, drive:1.05, master:.90, crossAEnd:.10, bedA:.00, blendAEnd:.28, bOffset:6, aHookOffset:30};
-    if(m === 'club') return {...base, rate:1.03, drive:1.55, master:.96, aIntroEnd:.18, crossEnd:.34, bMainEnd:.64, blendEnd:.86, blendAEnd:.45, blendBStart:.92, bOffset:8};
-    if(m === 'slowed') return {...base, rate:.84, drive:1.02, master:.90, cap:95, aIntroEnd:.28, crossEnd:.44, bOffset:3, aHookOffset:24};
-    if(m === 'phonk') return {...base, rate:.92, drive:1.75, master:.96, aIntroEnd:.20, crossEnd:.36, blendAEnd:.42, bOffset:7, duck:.22};
+    if(m === 'night') return {...base, rate:.94, drive:1.02, master:.90, cap:88, crossDur:2.8, stutterDur:2.0, grain:.22, fx:.13};
+    if(m === 'club') return {...base, rate:1.03, drive:1.42, master:.96, cap:82, crossDur:1.7, stutterDur:2.8, grain:.14, fx:.23};
+    if(m === 'slowed') return {...base, rate:.86, drive:1.00, master:.90, cap:90, crossDur:3.1, stutterDur:2.0, grain:.24, fx:.12};
+    if(m === 'phonk') return {...base, rate:.92, drive:1.62, master:.96, cap:82, crossDur:1.6, stutterDur:3.1, grain:.13, fx:.25};
     return base;
+  }
+
+  function transitionFx(local, amount){
+    if(local < 0 || local > .85) return 0;
+    const kick = Math.sin(2 * Math.PI * 48 * local) * Math.exp(-7.5 * local);
+    const tick = Math.sin(2 * Math.PI * 900 * local) * Math.exp(-18 * local) * .18;
+    return (kick + tick) * amount;
+  }
+
+  function findEnergyStart(buffer, minSec=0, maxSec=45){
+    const sr = buffer.sampleRate;
+    const ch0 = buffer.getChannelData(0);
+    const ch1 = buffer.getChannelData(Math.min(1, buffer.numberOfChannels - 1));
+    minSec = Math.max(0, Math.min(minSec || 0, Math.max(0, buffer.duration - 1)));
+    maxSec = Math.max(minSec + 1, Math.min(maxSec || 45, Math.max(1, buffer.duration - 1)));
+    const start = Math.floor(minSec * sr);
+    const end = Math.min(buffer.length - 1, Math.floor(maxSec * sr));
+    const win = Math.max(512, Math.floor(sr * .32));
+    const hop = Math.max(256, Math.floor(sr * .16));
+    let best = {rms:0, sec:minSec};
+    const values = [];
+    for(let i=start; i<end-win; i+=hop){
+      let sum=0;
+      for(let j=0; j<win; j+=24){
+        const v = (ch0[i+j] + ch1[i+j]) * .5;
+        sum += v*v;
+      }
+      const rms = Math.sqrt(sum / Math.max(1, Math.floor(win/24)));
+      const sec = i / sr;
+      values.push({rms,sec});
+      if(rms > best.rms) best = {rms,sec};
+    }
+    if(!values.length || best.rms < .002) return minSec;
+    const threshold = best.rms * .42;
+    const early = values.find(v => v.sec > minSec + .7 && v.rms >= threshold);
+    return (early ? early.sec : best.sec);
   }
 
   function lerp(a,b,t){ return a + (b-a) * t; }
