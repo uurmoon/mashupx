@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="MashupX" />
-  <title>MashupX v0.1.3</title>
+  <title>MashupX v0.2.0</title>
   <style>
     :root{
       --bg:#070713;
@@ -89,23 +89,23 @@
   <div class="splash" id="splash"><div class="splashBox"><div class="splashLogo">MX</div><h2>MashupX</h2><p>Auto Remix Studio</p></div></div>
   <main class="app">
     <header class="top">
-      <div class="brand"><div class="logo">MX</div><div><h1>MashupX</h1><small>v0.1.3 Vocal Clash Guard</small></div></div>
-      <div class="pill">AUTO ENGINE</div>
+      <div class="brand"><div class="logo">MX</div><div><h1>MashupX</h1><small>v0.2.0 Stem Blend Beta</small></div></div>
+      <div class="pill">STEM BLEND BETA</div>
     </header>
 
     <section class="hero">
       <h2>2 şarkı yükle.<br>Otomatik remix al.</h2>
-      <p>Bu sürüm sözleri üst üste bindirmez; iki parçayı sırayla kullanır, kısa DJ geçişleri, stutter drop ve crossfade ile daha temiz remix/medley preview üretir. iPhone dosya seçimiyle uyumludur.</p>
+      <p>Bu sürüm artık şarkıları sırayla çalmak yerine 1. parçadan vokal bölgesini yakalamaya, 2. parçadan beat/altyapı bölgesini çıkarmaya çalışır. Tarayıcı içinde çalışan beta motordur; gerçek AI stem separation değildir ama hedef “vokal + beat” akışına geçmiştir.</p>
 
       <div class="grid">
         <div class="upload">
-          <div class="head"><div class="badge">🎙️</div><div><h3>1. Şarkı</h3><p>Vokal / ana parça olarak düşün.</p></div></div>
+          <div class="head"><div class="badge">🎙️</div><div><h3>1. Şarkı</h3><p>Vokal alınacak ana şarkı.</p></div></div>
           <label class="fileBtn" for="fileA">Dosya seç</label>
           <input id="fileA" type="file" />
           <div class="fileName" id="nameA"></div>
         </div>
         <div class="upload">
-          <div class="head"><div class="badge">🥁</div><div><h3>2. Şarkı</h3><p>DJ geçişinde ikinci parça gibi kullanılır.</p></div></div>
+          <div class="head"><div class="badge">🥁</div><div><h3>2. Şarkı</h3><p>Beat / altyapı alınacak şarkı.</p></div></div>
           <label class="fileBtn" for="fileB">Dosya seç</label>
           <input id="fileB" type="file" />
           <div class="fileName" id="nameB"></div>
@@ -129,7 +129,7 @@
       <div class="steps">
         <div class="step" id="s1"><span class="dot"></span>Dosyalar okunuyor</div>
         <div class="step" id="s2"><span class="dot"></span>Ses seviyesi dengeleniyor</div>
-        <div class="step" id="s3"><span class="dot"></span>Vokal çakışması azaltılıyor, DJ kesitleri hazırlanıyor</div>
+        <div class="step" id="s3"><span class="dot"></span>Vokal lift + beat extractor uygulanıyor</div>
         <div class="step" id="s4"><span class="dot"></span>Final WAV hazırlanıyor</div>
       </div>
     </section>
@@ -150,7 +150,7 @@
         <a class="ghost primary" id="download" download="mashupx-remix.wav">İndir WAV</a>
         <button class="ghost" id="again">Yeniden Yap</button>
       </div>
-      <div class="note"><span class="warn">Not:</span> v0.1.3 preview motorudur; söz çakışmasını önlemek için parçaları sırayla düzenler. Gerçek vokal/beat ayırma ve BPM-key AI eşleme sonraki sürüm hedefidir. Telifli içerikleri yalnızca izinli/kişisel kullanım için işleyin.</div>
+      <div class="note"><span class="warn">Not:</span> v0.2.0 Stem Blend Beta, 1. parçadan yaklaşık vokal alanını, 2. parçadan yaklaşık altyapıyı çıkarmaya çalışır. Tam temiz acapella/instrumental için sunucu tarafında AI stem separation gerekir. Telifli içerikleri yalnızca izinli/kişisel kullanım için işleyin.</div>
     </section>
 
     <div class="footer">MashupX · Auto Remix Studio · Built for mobile</div>
@@ -223,7 +223,7 @@
       download.download = `MashupX-${cleanName(a.name)}-x-${cleanName(b.name)}.wav`.replace(/\s+/g,'-');
       const titleA = cleanName(a.name), titleB = cleanName(b.name);
       $('trackTitle').textContent = `${titleA} x ${titleB}`;
-      $('trackSub').textContent = `${labelForMode(mode)} · MashupX v0.1.3`;
+      $('trackSub').textContent = `${labelForMode(mode)} · MashupX v0.2.0`;
       $('coverLeft').textContent = titleA.toUpperCase();
       $('coverRight').textContent = titleB.toUpperCase();
       $('coverBottom').textContent = labelForMode(mode).toUpperCase();
@@ -250,139 +250,167 @@
     if(ctx.state === 'suspended') await ctx.resume();
 
     setProgress(14,'Ses dosyaları decode ediliyor...', 's1');
-    const [buf1, buf2] = await Promise.all([decode(file1), decode(file2)]);
+    const [vocalBuf, beatBuf] = await Promise.all([decode(file1), decode(file2)]);
 
-    setProgress(34,'Ses seviyesi dengeleniyor...', 's2');
-    await sleep(150);
+    setProgress(30,'1. şarkıdan vokal alanı aranıyor...', 's2');
+    await sleep(120);
 
     const sr = 44100;
     const settings = getSettings(selectedMode);
-    const dur = Math.min(settings.cap, Math.max(52, Math.min((buf1.duration + buf2.duration) / (2 * settings.rate), settings.cap)));
+    const sourceDur = Math.min(vocalBuf.duration / settings.rate, beatBuf.duration / settings.rate);
+    const dur = Math.min(settings.cap, Math.max(38, sourceDur || settings.cap));
     const length = Math.max(1, Math.floor(dur * sr));
     const outL = new Float32Array(length);
     const outR = new Float32Array(length);
 
-    const peak1 = getPeak(buf1), peak2 = getPeak(buf2);
-    const norm1 = peak1 ? 0.95/peak1 : 1;
-    const norm2 = peak2 ? 0.95/peak2 : 1;
+    const peakV = getPeak(vocalBuf), peakB = getPeak(beatBuf);
+    const normV = peakV ? 0.95/peakV : 1;
+    const normB = peakB ? 0.95/peakB : 1;
 
-    setProgress(52, 'Parça girişleri analiz ediliyor...', 's3');
+    setProgress(44,'2. şarkıdan beat/altyapı çıkarılıyor...', 's3');
     await sleep(120);
 
-    // v0.1.3 Vocal Clash Guard:
-    // Gerçek vokal ayırma olmadan iki tam şarkıyı aynı anda çalmak sözleri çakıştırır.
-    // Bu yüzden varsayılan motor artık A ve B'yi uzun süre üst üste bindirmez.
-    // A bölüm -> kısa geçiş -> B bölüm -> stutter/drop -> A hook -> kısa geçiş -> B outro.
-    const aStart = findEnergyStart(buf1, 0, Math.min(35, buf1.duration - 2));
-    const bStart = findEnergyStart(buf2, 0, Math.min(35, buf2.duration - 2));
-    const aHook = findEnergyStart(buf1, Math.min(18, Math.max(0, buf1.duration * .25)), Math.min(82, Math.max(2, buf1.duration - 2)));
-    const bHook = findEnergyStart(buf2, Math.min(18, Math.max(0, buf2.duration * .25)), Math.min(82, Math.max(2, buf2.duration - 2)));
+    const vocalStart = findEnergyStart(vocalBuf, 0, Math.min(50, vocalBuf.duration - 2));
+    const beatStart = findEnergyStart(beatBuf, 0, Math.min(50, beatBuf.duration - 2));
+    const maxStartShift = Math.max(0, Math.min(vocalStart, beatStart, 12));
+    const vStart = Math.max(0, vocalStart - maxStartShift);
+    const bStart = Math.max(0, beatStart - maxStartShift);
 
-    const cross = Math.min(settings.crossDur, dur * .055);
-    const stutterDur = Math.min(settings.stutterDur, dur * .045);
-    const tA1End = dur * .27;
-    const tCross1End = tA1End + cross;
-    const tB1End = dur * .57;
-    const tStutterEnd = tB1End + stutterDur;
-    const tA2End = dur * .76;
-    const tCross2End = tA2End + cross;
-    const fadeIn = Math.min(1.6, dur * .045);
-    const fadeOut = Math.min(3.6, dur * .07);
+    const vState = makeVocalState(sr, settings);
+    const bState = makeBeatState(sr, settings);
+    const fadeIn = Math.min(2.2, dur * .06);
+    const fadeOut = Math.min(4.0, dur * .08);
+    const vocalDelay = settings.vocalDelay;
+    let env = 0;
 
-    setProgress(64, 'Sözler çakışmayacak şekilde kurgu yapılıyor...', null);
+    setProgress(58,'Vokal + beat yeni miks içine oturtuluyor...', null);
 
     for(let i=0;i<length;i++){
       const t = i / sr;
       const masterFade = Math.max(0, Math.min(1, t / fadeIn, (dur - t) / fadeOut));
-      let aGain = 0, bGain = 0;
-      let aSec = 0, bSec = 0;
-      let fx = 0;
+      const localPulse = 0.5 + 0.5 * Math.sin(2 * Math.PI * (settings.pulseHz || 0.125) * t);
 
-      if(t < tA1End){
-        // 1) A tek başına: söz çakışması yok.
-        aGain = 0.96;
-        aSec = aStart + (t * settings.rate);
-      }else if(t < tCross1End){
-        // 2) Çok kısa DJ geçişi: bindirme sadece geçiş kadar.
-        const x = ease((t - tA1End) / Math.max(.001, cross));
-        aGain = lerp(0.90, 0.00, x);
-        bGain = lerp(0.00, 0.96, x);
-        aSec = aStart + (t * settings.rate);
-        bSec = bStart + ((t - tA1End) * settings.rate);
-        fx += transitionFx(t - tA1End, settings.fx);
-      }else if(t < tB1End){
-        // 3) B tek başına: ana gövde.
-        bGain = 0.98;
-        bSec = bStart + ((t - tA1End) * settings.rate);
-      }else if(t < tStutterEnd){
-        // 4) Remix hissi: B'den mikro stutter/drop. Yine iki vokal üst üste yok.
-        const local = t - tB1End;
-        const grain = settings.grain;
-        const pulse = local % grain;
-        bGain = 0.88 * (1 - (local / Math.max(.001, stutterDur)) * .18);
-        bSec = bHook + pulse * settings.rate;
-        fx += transitionFx(local, settings.fx * 1.25);
-      }else if(t < tA2End){
-        // 5) A hook/ikinci bölüm tek başına.
-        aGain = 0.96;
-        aSec = aHook + ((t - tStutterEnd) * settings.rate);
-      }else if(t < tCross2End){
-        // 6) Kısa geçiş A -> B.
-        const x = ease((t - tA2End) / Math.max(.001, cross));
-        aGain = lerp(0.90, 0.00, x);
-        bGain = lerp(0.00, 0.96, x);
-        aSec = aHook + ((t - tStutterEnd) * settings.rate);
-        bSec = bHook + ((t - tA2End) * settings.rate);
-        fx += transitionFx(t - tA2End, settings.fx);
-      }else{
-        // 7) B outro/final.
-        bGain = 0.96;
-        bSec = bHook + ((t - tA2End) * settings.rate);
+      const vSec = vStart + Math.max(0, t - vocalDelay) * settings.rate;
+      const bSec = bStart + t * settings.rate;
+
+      const stemV = getVocalStem(vocalBuf, vSec, vState, normV, settings);
+      const stemB = getBeatStem(beatBuf, bSec, bState, normB, settings);
+
+      const vAbs = Math.max(Math.abs(stemV.l), Math.abs(stemV.r));
+      env = env * 0.995 + vAbs * 0.005;
+      const duck = Math.max(settings.minBeat, 1 - Math.min(0.55, env * settings.duck));
+
+      let vGain = settings.vocalGain;
+      let bGain = settings.beatGain * duck;
+
+      // Vokal suskun bölgede beat biraz nefes alsın; vokal girince altyapı hafif geri çekilsin.
+      bGain *= lerp(1.08, .92, Math.min(1, env * 4));
+
+      // Modlara küçük karakter farkı.
+      let l = (stemB.l * bGain) + (stemV.l * vGain);
+      let r = (stemB.r * bGain) + (stemV.r * vGain);
+
+      if(selectedMode === 'club'){
+        const kick = Math.sin(2 * Math.PI * 52 * (t % .5)) * Math.exp(-18 * (t % .5));
+        l += kick * .035; r += kick * .035;
       }
-
-      const aL = readSec(buf1, 0, aSec) * norm1;
-      const aR = readSec(buf1, Math.min(1, buf1.numberOfChannels-1), aSec) * norm1;
-      const bL = readSec(buf2, 0, bSec) * norm2;
-      const bR = readSec(buf2, Math.min(1, buf2.numberOfChannels-1), bSec) * norm2;
-
-      let l = (aL * aGain) + (bL * bGain) + fx;
-      let r = (aR * aGain) + (bR * bGain) + fx;
-
       if(selectedMode === 'phonk'){
-        const wobble = 0.035 * Math.sin(t * Math.PI * 2 * 2.15);
-        l += fx * wobble * 3;
-        r -= fx * wobble * 3;
+        const wobble = Math.sin(t * Math.PI * 2 * 2.0) * .035;
+        l += stemB.l * wobble; r -= stemB.r * wobble;
       }
       if(selectedMode === 'night'){
-        l *= 0.90; r *= 0.90;
+        l *= .92; r *= .92;
+      }
+      if(selectedMode === 'slowed'){
+        const air = Math.sin(2 * Math.PI * 4200 * t) * .002 * localPulse;
+        l += air; r -= air;
       }
 
       outL[i] = softClip(l * masterFade, settings.drive);
       outR[i] = softClip(r * masterFade, settings.drive);
 
       if(i % Math.floor(sr*5) === 0){
-        const p = 66 + (i/length)*21;
+        const p = 60 + (i/length)*28;
         bar.style.width = p + '%'; percent.textContent = Math.round(p) + '%';
       }
     }
 
-    setProgress(88,'Final WAV hazırlanıyor...',null);
+    setProgress(90,'Final WAV hazırlanıyor...',null);
     normalize(outL, outR, settings.master);
     const wav = encodeWav(outL, outR, sr);
-    setProgress(96,'Player hazırlanıyor...',null);
+    setProgress(97,'Player hazırlanıyor...',null);
     await sleep(120);
     return new Blob([wav], {type:'audio/wav'});
   }
 
+  function onePoleCoeff(fc, sr){
+    return 1 - Math.exp(-2 * Math.PI * fc / sr);
+  }
+  function makeVocalState(sr, settings){
+    return {
+      low:0, high:0, pres:0,
+      hp:onePoleCoeff(settings.vocalLowCut, sr),
+      lp:onePoleCoeff(settings.vocalHighCut, sr),
+      pp:onePoleCoeff(settings.presenceCut, sr)
+    };
+  }
+  function makeBeatState(sr, settings){
+    return {
+      low:0, bodyL:0, bodyR:0,
+      lp:onePoleCoeff(settings.beatBassCut, sr),
+      body:onePoleCoeff(settings.beatBodyCut, sr)
+    };
+  }
+  function getVocalStem(buffer, sec, st, norm, settings){
+    const l = readSec(buffer, 0, sec) * norm;
+    const r = readSec(buffer, Math.min(1, buffer.numberOfChannels-1), sec) * norm;
+    const mid = (l + r) * .5;
+    const side = (l - r) * .5;
+
+    // Merkezdeki insan sesi bölgesini yaklaşık yakalama:
+    // 120 Hz altını azalt, 5-6 kHz üstünü yumuşat, 1-3 kHz presence alanını hafif öne al.
+    st.low += st.hp * (mid - st.low);
+    const hp = mid - st.low;
+    st.high += st.lp * (hp - st.high);
+    st.pres += st.pp * (st.high - st.pres);
+    const presence = st.high - st.pres;
+    const vocal = (st.high * 1.05) + (presence * .38);
+    const width = side * settings.vocalWidth;
+    return {l: vocal + width, r: vocal - width};
+  }
+  function getBeatStem(buffer, sec, st, norm, settings){
+    const l = readSec(buffer, 0, sec) * norm;
+    const r = readSec(buffer, Math.min(1, buffer.numberOfChannels-1), sec) * norm;
+    const mid = (l + r) * .5;
+
+    // 2. parçadaki merkez vokali kısmaya çalışırken kick/bass kaybolmasın diye alt frekansı geri ekle.
+    st.low += st.lp * (mid - st.low);
+    st.bodyL += st.body * (l - st.bodyL);
+    st.bodyR += st.body * (r - st.bodyR);
+    const highL = l - st.bodyL;
+    const highR = r - st.bodyR;
+
+    const centerCutL = l - mid * settings.centerCut;
+    const centerCutR = r - mid * settings.centerCut;
+    const bass = st.low * settings.bassKeep;
+    const bodyL = centerCutL * settings.sideKeep + bass + highL * settings.airKeep;
+    const bodyR = centerCutR * settings.sideKeep + bass + highR * settings.airKeep;
+    return {l: bodyL, r: bodyR};
+  }
+
   function getSettings(m){
     const base = {
-      rate:1, drive:1.12, master:.94, cap:84,
-      crossDur:2.2, stutterDur:2.4, grain:.18, fx:.18
+      rate:1, drive:1.10, master:.94, cap:74,
+      vocalGain:.92, beatGain:.88, duck:2.25, minBeat:.55,
+      vocalDelay:.15, vocalWidth:.06,
+      vocalLowCut:135, vocalHighCut:5600, presenceCut:1600,
+      centerCut:.72, bassKeep:.82, sideKeep:1.05, airKeep:.18,
+      beatBassCut:170, beatBodyCut:950, pulseHz:.12
     };
-    if(m === 'night') return {...base, rate:.94, drive:1.02, master:.90, cap:88, crossDur:2.8, stutterDur:2.0, grain:.22, fx:.13};
-    if(m === 'club') return {...base, rate:1.03, drive:1.42, master:.96, cap:82, crossDur:1.7, stutterDur:2.8, grain:.14, fx:.23};
-    if(m === 'slowed') return {...base, rate:.86, drive:1.00, master:.90, cap:90, crossDur:3.1, stutterDur:2.0, grain:.24, fx:.12};
-    if(m === 'phonk') return {...base, rate:.92, drive:1.62, master:.96, cap:82, crossDur:1.6, stutterDur:3.1, grain:.13, fx:.25};
+    if(m === 'night') return {...base, rate:.96, drive:1.02, master:.90, cap:80, vocalGain:.84, beatGain:.82, duck:2.6, minBeat:.50, vocalHighCut:5000, centerCut:.78, bassKeep:.76};
+    if(m === 'club') return {...base, rate:1.04, drive:1.36, master:.96, cap:72, vocalGain:.86, beatGain:.96, duck:1.9, minBeat:.60, centerCut:.66, bassKeep:1.02, sideKeep:1.12, pulseHz:.18};
+    if(m === 'slowed') return {...base, rate:.88, drive:1.00, master:.90, cap:82, vocalGain:.86, beatGain:.78, duck:2.7, minBeat:.48, vocalLowCut:115, vocalHighCut:4800, centerCut:.80};
+    if(m === 'phonk') return {...base, rate:.92, drive:1.50, master:.96, cap:72, vocalGain:.80, beatGain:1.02, duck:1.75, minBeat:.62, centerCut:.60, bassKeep:1.08, sideKeep:1.18, airKeep:.25};
     return base;
   }
 
