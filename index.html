@@ -7,7 +7,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="MashupX" />
-  <title>MashupX v0.1.1</title>
+  <title>MashupX v0.1.2</title>
   <style>
     :root{
       --bg:#070713;
@@ -89,13 +89,13 @@
   <div class="splash" id="splash"><div class="splashBox"><div class="splashLogo">MX</div><h2>MashupX</h2><p>Auto Remix Studio</p></div></div>
   <main class="app">
     <header class="top">
-      <div class="brand"><div class="logo">MX</div><div><h1>MashupX</h1><small>v0.1.1 iOS File Fix</small></div></div>
+      <div class="brand"><div class="logo">MX</div><div><h1>MashupX</h1><small>v0.1.2 DJ Blend Fix</small></div></div>
       <div class="pill">AUTO ENGINE</div>
     </header>
 
     <section class="hero">
       <h2>2 şarkı yükle.<br>Otomatik remix al.</h2>
-      <p>Bu ilk sürüm gerçek bir prototip: iki ses dosyasını alır, otomatik dengeler, efekt uygular ve indirilebilir WAV preview üretir. iPhone için dosya seçme filtresi kaldırıldı.</p>
+      <p>Bu sürüm şarkıları düz üst üste bindirmez; akıllı geçiş, crossfade ve kısa blend bölümleriyle daha DJ tarzı WAV preview üretir. iPhone dosya seçimiyle uyumludur.</p>
 
       <div class="grid">
         <div class="upload">
@@ -105,7 +105,7 @@
           <div class="fileName" id="nameA"></div>
         </div>
         <div class="upload">
-          <div class="head"><div class="badge">🥁</div><div><h3>2. Şarkı</h3><p>Beat / altyapı gibi karışır.</p></div></div>
+          <div class="head"><div class="badge">🥁</div><div><h3>2. Şarkı</h3><p>DJ geçişinde ikinci parça gibi kullanılır.</p></div></div>
           <label class="fileBtn" for="fileB">Dosya seç</label>
           <input id="fileB" type="file" />
           <div class="fileName" id="nameB"></div>
@@ -129,7 +129,7 @@
       <div class="steps">
         <div class="step" id="s1"><span class="dot"></span>Dosyalar okunuyor</div>
         <div class="step" id="s2"><span class="dot"></span>Ses seviyesi dengeleniyor</div>
-        <div class="step" id="s3"><span class="dot"></span>Remix modu uygulanıyor</div>
+        <div class="step" id="s3"><span class="dot"></span>DJ geçişleri ve crossfade hazırlanıyor</div>
         <div class="step" id="s4"><span class="dot"></span>Final WAV hazırlanıyor</div>
       </div>
     </section>
@@ -223,7 +223,7 @@
       download.download = `MashupX-${cleanName(a.name)}-x-${cleanName(b.name)}.wav`.replace(/\s+/g,'-');
       const titleA = cleanName(a.name), titleB = cleanName(b.name);
       $('trackTitle').textContent = `${titleA} x ${titleB}`;
-      $('trackSub').textContent = `${labelForMode(mode)} · MashupX v0.1.1`;
+      $('trackSub').textContent = `${labelForMode(mode)} · MashupX v0.1.2`;
       $('coverLeft').textContent = titleA.toUpperCase();
       $('coverRight').textContent = titleB.toUpperCase();
       $('coverBottom').textContent = labelForMode(mode).toUpperCase();
@@ -245,48 +245,103 @@
   async function createMashup(file1, file2, selectedMode){
     ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
     if(ctx.state === 'suspended') await ctx.resume();
+
     setProgress(14,'Ses dosyaları decode ediliyor...', 's1');
     const [buf1, buf2] = await Promise.all([decode(file1), decode(file2)]);
+
     setProgress(34,'Ses seviyesi dengeleniyor...', 's2');
     await sleep(150);
 
     const sr = 44100;
     const settings = getSettings(selectedMode);
-    const dur = Math.min(settings.cap, Math.max(buf1.duration / settings.rate, buf2.duration / settings.rate));
+    const dur = Math.min(settings.cap, Math.max(45, Math.min(buf1.duration / settings.rate, buf2.duration / settings.rate, settings.cap)));
     const length = Math.max(1, Math.floor(dur * sr));
     const outL = new Float32Array(length);
     const outR = new Float32Array(length);
+
     const peak1 = getPeak(buf1), peak2 = getPeak(buf2);
     const norm1 = peak1 ? 1/peak1 : 1;
     const norm2 = peak2 ? 1/peak2 : 1;
-    setProgress(58, labelForMode(selectedMode) + ' uygulanıyor...', 's3');
+
+    setProgress(56, 'DJ blend planı hazırlanıyor...', 's3');
     await sleep(120);
 
-    const fade = Math.min(sr * 3, Math.floor(length * .08));
+    // v0.1.2 fix: full şarkıları düz üst üste bindirmek yerine
+    // A intro -> A/B crossfade -> B ana bölüm -> kısa mashup blend -> outro düzeni.
+    const tAEnd = dur * settings.aIntroEnd;       // A yalnız bölüm biter
+    const tXEnd = dur * settings.crossEnd;        // crossfade biter
+    const tBEnd = dur * settings.bMainEnd;        // B ana bölüm biter
+    const tBlendEnd = dur * settings.blendEnd;    // kısa remix blend biter
+    const fadeIn = Math.min(2.2, dur * .06);
+    const fadeOut = Math.min(4.0, dur * .09);
+
     for(let i=0;i<length;i++){
       const t = i / sr;
-      const idx1 = t * buf1.sampleRate * settings.rate;
-      const idx2 = t * buf2.sampleRate * settings.rate;
-      const aL = sample(buf1, 0, idx1) * norm1;
-      const aR = sample(buf1, Math.min(1, buf1.numberOfChannels-1), idx1) * norm1;
-      const bL = sample(buf2, 0, idx2) * norm2;
-      const bR = sample(buf2, Math.min(1, buf2.numberOfChannels-1), idx2) * norm2;
-      const duck = Math.max(0.72, 1 - Math.min(0.22, Math.abs(aL+aR) * 0.08));
-      let l = (aL * settings.gainA) + (bL * settings.gainB * duck);
-      let r = (aR * settings.gainA) + (bR * settings.gainB * duck);
-      if(selectedMode === 'phonk'){
-        l += lowWeight(bL, t) * .10;
-        r += lowWeight(bR, t) * .10;
+      const masterFade = Math.min(1, t / fadeIn, (dur - t) / fadeOut);
+      let aGain = 0, bGain = 0;
+      let aSec = t * settings.rate;
+      let bSec = 0;
+
+      if(t < tAEnd){
+        // 1) Track A intro / ana giriş
+        aGain = 0.92;
+        bGain = 0;
+      }else if(t < tXEnd){
+        // 2) Yumuşak geçiş: A azalır, B yükselir
+        const x = ease((t - tAEnd) / Math.max(.001, (tXEnd - tAEnd)));
+        aGain = lerp(0.88, settings.crossAEnd, x);
+        bGain = lerp(0.00, settings.crossBEnd, x);
+        bSec = (t - tAEnd) * settings.rate + settings.bOffset;
+      }else if(t < tBEnd){
+        // 3) Track B ana bölüm: çakışma yok, kulak rahat
+        aGain = settings.bedA;
+        bGain = 0.92;
+        aSec = (t - tXEnd) * settings.rate + settings.aBedOffset;
+        bSec = (t - tAEnd) * settings.rate + settings.bOffset;
+      }else if(t < tBlendEnd){
+        // 4) Kısa mashup bölümü: A kontrollü döner, B ana kalır
+        const x = ease((t - tBEnd) / Math.max(.001, (tBlendEnd - tBEnd)));
+        aGain = lerp(settings.blendAStart, settings.blendAEnd, x);
+        bGain = lerp(settings.blendBStart, settings.blendBEnd, x);
+        aSec = (t - tBEnd) * settings.rate + settings.aHookOffset;
+        bSec = (t - tAEnd) * settings.rate + settings.bOffset;
+      }else{
+        // 5) Outro: B bitirir, A çok düşük ambiyans olarak kalabilir
+        const x = ease((t - tBlendEnd) / Math.max(.001, (dur - tBlendEnd)));
+        aGain = lerp(settings.outroA, 0, x);
+        bGain = lerp(settings.outroB, 0.76, x);
+        aSec = (t - tBlendEnd) * settings.rate + settings.aHookOffset + 10;
+        bSec = (t - tAEnd) * settings.rate + settings.bOffset;
       }
-      if(i < fade){ const f = i/fade; l*=f; r*=f; }
-      if(i > length-fade){ const f = (length-i)/fade; l*=f; r*=f; }
-      outL[i] = softClip(l, settings.drive);
-      outR[i] = softClip(r, settings.drive);
+
+      const aL = readSec(buf1, 0, aSec) * norm1;
+      const aR = readSec(buf1, Math.min(1, buf1.numberOfChannels-1), aSec) * norm1;
+      const bL = readSec(buf2, 0, bSec) * norm2;
+      const bR = readSec(buf2, Math.min(1, buf2.numberOfChannels-1), bSec) * norm2;
+
+      // Basit ducking: iki şarkı kısa süre bir araya geldiğinde patlamayı azaltır.
+      const duck = 1 - Math.min(settings.duck, Math.abs((aL+aR)/2) * 0.10);
+      let l = (aL * aGain) + (bL * bGain * duck);
+      let r = (aR * aGain) + (bR * bGain * duck);
+
+      if(selectedMode === 'phonk'){
+        const wobble = 0.04 * Math.sin(t * Math.PI * 2 * 2.2);
+        l += bL * wobble;
+        r += bR * wobble;
+      }
+      if(selectedMode === 'night'){
+        l *= 0.92; r *= 0.92;
+      }
+
+      outL[i] = softClip(l * masterFade, settings.drive);
+      outR[i] = softClip(r * masterFade, settings.drive);
+
       if(i % Math.floor(sr*5) === 0){
         const p = 58 + (i/length)*27;
         bar.style.width = p + '%'; percent.textContent = Math.round(p) + '%';
       }
     }
+
     setProgress(88,'Final WAV hazırlanıyor...',null);
     normalize(outL, outR, settings.master);
     const wav = encodeWav(outL, outR, sr);
@@ -296,14 +351,32 @@
   }
 
   function getSettings(m){
-    const base = {rate:1, gainA:.72, gainB:.54, drive:1.25, master:.94, cap:90};
-    if(m === 'night') return {rate:.94,gainA:.70,gainB:.50,drive:1.12,master:.90,cap:90};
-    if(m === 'club') return {rate:1.03,gainA:.68,gainB:.66,drive:1.75,master:.96,cap:90};
-    if(m === 'slowed') return {rate:.84,gainA:.72,gainB:.48,drive:1.08,master:.90,cap:90};
-    if(m === 'phonk') return {rate:.92,gainA:.67,gainB:.70,drive:2.05,master:.96,cap:90};
+    const base = {
+      rate:1, drive:1.18, master:.94, cap:90, duck:.18,
+      aIntroEnd:.24, crossEnd:.40, bMainEnd:.68, blendEnd:.84,
+      crossAEnd:.16, crossBEnd:.92, bedA:.00,
+      blendAStart:.18, blendAEnd:.38, blendBStart:.88, blendBEnd:.76,
+      outroA:.10, outroB:.86,
+      bOffset:4, aBedOffset:18, aHookOffset:28
+    };
+    if(m === 'night') return {...base, rate:.94, drive:1.05, master:.90, crossAEnd:.10, bedA:.00, blendAEnd:.28, bOffset:6, aHookOffset:30};
+    if(m === 'club') return {...base, rate:1.03, drive:1.55, master:.96, aIntroEnd:.18, crossEnd:.34, bMainEnd:.64, blendEnd:.86, blendAEnd:.45, blendBStart:.92, bOffset:8};
+    if(m === 'slowed') return {...base, rate:.84, drive:1.02, master:.90, cap:95, aIntroEnd:.28, crossEnd:.44, bOffset:3, aHookOffset:24};
+    if(m === 'phonk') return {...base, rate:.92, drive:1.75, master:.96, aIntroEnd:.20, crossEnd:.36, blendAEnd:.42, bOffset:7, duck:.22};
     return base;
   }
-  function lowWeight(x,t){ return x * (0.5 + 0.5*Math.sin(t*2*Math.PI*2)); }
+
+  function lerp(a,b,t){ return a + (b-a) * t; }
+  function ease(t){ t = Math.max(0, Math.min(1, t)); return t*t*(3-2*t); }
+  function readSec(buffer, ch, sec){
+    if(!isFinite(sec) || sec < 0) return 0;
+    if(sec > buffer.duration - .02){
+      // Dosya çok kısa kalırsa preview susmasın diye yumuşak loop.
+      sec = sec % Math.max(.05, buffer.duration - .02);
+    }
+    return sample(buffer, ch, sec * buffer.sampleRate);
+  }
+
   async function decode(file){
     const arr = await file.arrayBuffer();
     return await ctx.decodeAudioData(arr.slice(0));
